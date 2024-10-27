@@ -1,13 +1,30 @@
 #include "MainComponent.h"
 
+class ExtendedUIBehaviour : public tracktion_engine::UIBehaviour
+{
+public:
+    ExtendedUIBehaviour() = default;
+
+    void runTaskWithProgressBar(tracktion_engine::ThreadPoolJobWithProgress& job) override
+    {
+        // This is a simple implementation that just runs the job without a UI.
+        while (! job.shouldExit())
+        {
+            job.runJob();
+        }
+    }
+};
 
 //==============================================================================
-MainComponent::MainComponent():engine("Render Test")
+MainComponent::MainComponent():engine("Render Test",
+                                      std::make_unique<ExtendedUIBehaviour>(),
+                                      std::make_unique<tracktion_engine::EngineBehaviour>())
 {
     
     selectFileButton.addListener(this);
     playButton.addListener(this);
     renderButton.addListener(this);
+    renderButton2.addListener(this);
     addAndMakeVisible(selectFileButton);
     setSize (800, 600);
 
@@ -24,8 +41,7 @@ MainComponent::MainComponent():engine("Render Test")
         setAudioChannels (2, 2);
     }
     
-    const auto editFilePath = juce::JUCEApplication::getCommandLineParameters().replace ("-NSDocumentRevisionsDebugMode YES", "").unquoted().trim();
-    const juce::File editFile (editFilePath);
+    const juce::File editFile (juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("edit"));
     edit = tracktion_engine::createEmptyEdit (engine, editFile);
 }
 
@@ -77,9 +93,10 @@ void MainComponent::paint (juce::Graphics& g)
 
 void MainComponent::resized()
 {
-    selectFileButton.setBounds(getWidth() / 2 - 50, getHeight() / 2 - 20, 100, 40);
-    playButton.setBounds(getWidth() / 2 - 50, (getHeight() / 2 - 20)+50, 100, 40);
-    renderButton.setBounds(getWidth() / 2 - 50, (getHeight() / 2 - 20)+100, 100, 40);
+    selectFileButton.setBounds(getWidth() / 2 - 50, getHeight() / 2 - 20, 150, 40);
+    playButton.setBounds(getWidth() / 2 - 50, (getHeight() / 2 - 20)+50, 150, 40);
+    renderButton.setBounds(getWidth() / 2 - 50, (getHeight() / 2 - 20)+100, 150, 40);
+    renderButton2.setBounds(getWidth() / 2 - 50, (getHeight() / 2 - 20)+150, 150, 40);
 }
 
 void MainComponent::buttonClicked(juce::Button* button)
@@ -106,6 +123,9 @@ void MainComponent::buttonClicked(juce::Button* button)
     } else if(button == &renderButton)
     {
         renderToFile();
+    }else if(button == &renderButton2)
+    {
+        renderToFileNoParams();
     }
 }
 
@@ -120,27 +140,63 @@ void MainComponent::loadAudioFile(const juce::File& file)
     
     addAndMakeVisible(playButton);
     addAndMakeVisible(renderButton);
-    
+    addAndMakeVisible(renderButton2);
 }
 
 void MainComponent::play()
 {
     transport = &edit->getTransport();
-    transport->play(false);
+    if(transport->isPlaying())
+    {
+        transport->stop(false,true);
+    } else
+    {
+        transport->play(false);
+    }
 }
 
 void MainComponent::renderToFile()
 {
     juce::File outputFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("output.wav");
-    if(!outputFile.hasWriteAccess()){return;}
+    if(!outputFile.hasWriteAccess()){
+        DBG("No write access");
+        return;
+    }
+    auto tracks = tracktion_engine::getAllTracks(*edit);
+    auto bitset = tracktion_engine::toBitSet(tracks);
     tracktion::Renderer::Parameters params (*edit);
     params.destFile = outputFile;
     params.time = tracktion::TimeRange(tracktion::TimePosition::fromSeconds(0), tracktion::TimePosition::fromSeconds(4));
     params.audioFormat = engine.getAudioFileFormatManager().getWavFormat();
+    params.tracksToDo = bitset;
     juce::File renderedFile = tracktion::Renderer::renderToFile("Exporting audio", params);
     if (renderedFile.existsAsFile())
     {
         DBG("Render successful. File saved to: " << renderedFile.getFullPathName());
+    }
+    else
+    {
+        DBG("Render failed or file was not created.");
+    }
+}
+
+void MainComponent::renderToFileNoParams()
+{
+    juce::File outputFile = juce::File::getSpecialLocation(juce::File::userDesktopDirectory).getChildFile("output.wav");
+    if(!outputFile.hasWriteAccess()){
+        DBG("No write access");
+        return;
+    }
+    //auto success = tracktion::Renderer::renderToFile(*edit, outputFile, false); // this works too
+    auto timeRange = tracktion::TimeRange(tracktion::TimePosition::fromSeconds(0), tracktion::TimePosition::fromSeconds(4));
+    
+    juce::BigInteger bitset;
+    bitset.setBit (0);
+        
+    auto success = tracktion::Renderer::renderToFile({}, outputFile, *edit, timeRange, bitset, true, true, {}, false);
+    if (success)
+    {
+        DBG("Render successful. File saved to: " << outputFile.getFullPathName());
     }
     else
     {

@@ -33,11 +33,13 @@ private:
     juce::TextButton selectFileButton { "Select Audio File" };
     juce::TextButton playButton { "Play" };
     juce::TextButton renderButton { "Render to File" };
+    juce::TextButton renderButton2 { "Render to File No Params" };
     std::unique_ptr<juce::FileChooser> fileChooser;
 
     void loadAudioFile(const juce::File& file);
     void play();
     void renderToFile();
+    void renderToFileNoParams();
 
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (MainComponent)
